@@ -76,7 +76,10 @@ the `paper-search search` CLI.
 ## Remote hosting (Streamable HTTP / SSE)
 
 Run `paper-search-mcp --transport streamable-http` (endpoint `/mcp`) or
-`--transport sse` (`/sse` and `/messages/`) behind an HTTPS reverse proxy. For
+`--transport sse` (`/sse` and `/messages/`) behind an HTTPS reverse proxy.
+[`deploy/`](deploy/docker-compose.yml) has a ready stack: Caddy (automatic
+HTTPS), Keycloak with Postgres (OAuth), and this server, configured from one
+`deploy/.env` (template: `deploy/.env.example`). For
 anything reachable beyond your own machine, use OAuth mode; see
 [docs/OAUTH_PROTECTED_RESOURCE.md](docs/OAUTH_PROTECTED_RESOURCE.md).
 

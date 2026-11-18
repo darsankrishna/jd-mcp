@@ -1,0 +1,11 @@
+# Real certificates come from Let's Encrypt automatically: point both DNS
+# names at this server and keep ports 80 and 443 open.
+
+{$AUTH_DOMAIN} {
+	reverse_proxy keycloak:8080
+}
+
+{$MCP_DOMAIN} {
+	# Keep the path as is: the OAuth resource URL must match /mcp exactly.
+	reverse_proxy jd-mcp:8000
+}

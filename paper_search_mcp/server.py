@@ -649,6 +649,7 @@ async def search_papers(
     max_results_per_source: int = 5,
     sources: str = "all",
     year: str = "",
+    limit: Annotated[int, Field(ge=1, le=200)] = 20,
 ) -> Dict[str, Any]:
     """Search academic sources in parallel and return deduplicated, fused works.
 
@@ -663,6 +664,8 @@ async def search_papers(
             arxiv,pubmed,biorxiv,medrxiv,iacr,semantic,crossref,openalex,pmc,core,europepmc,dblp,openaire,citeseerx,doaj,base,zenodo,hal,ssrn,openreview,unpaywall,acm
             (plus ieee when keyed). Explicit only: wos, scopus, google_scholar.
         year: Optional year filter for Semantic Scholar only.
+        limit: Max works returned, best RRF rank first (total counts all found).
+            Abstracts are cut to 500 characters; get_paper has full metadata.
     Returns:
         Works ranked by RRF, per-source counts, and typed per-source errors.
     """
@@ -674,7 +677,7 @@ async def search_papers(
     if not selected:
         errors["sources"] = {"kind": "invalid_request", "type": "ValueError", "message": "No valid sources selected."}
         return {"query": query, "sources_requested": sources, "sources_used": [],
-                "source_results": {}, "errors": errors, "papers": [], "total": 0, "raw_total": 0}
+                "source_results": {}, "errors": errors, "papers": [], "total": 0, "returned": 0, "raw_total": 0}
 
     outputs = await asyncio.gather(
         *(
@@ -705,10 +708,22 @@ async def search_papers(
         "sources_used": selected,
         "source_results": source_results,
         "errors": errors,
-        "papers": works,
+        "papers": [_compact(work) for work in works[:limit]],
         "total": len(works),
+        "returned": min(len(works), limit),
         "raw_total": sum(source_results.values()),
     }
+
+
+ABSTRACT_CHARS = 500
+
+
+def _compact(work: Dict[str, Any]) -> Dict[str, Any]:
+    # Keeps a full search within one client response; identities are unchanged.
+    abstract = work.get("abstract") or ""
+    if len(abstract) <= ABSTRACT_CHARS:
+        return work
+    return {**work, "abstract": abstract[:ABSTRACT_CHARS].rstrip() + "…"}
 
 
 @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})

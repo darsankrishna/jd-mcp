@@ -181,3 +181,4 @@ dsh/.npm/
 # Local HTTPS for Keycloak testing
 Caddyfile.local
 caddy-root.crt
+deploy/.env

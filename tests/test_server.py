@@ -181,3 +181,29 @@ class TestRemoteSavePaths(unittest.TestCase):
     def test_stdio_keeps_any_save_path(self):
         with patch.object(server, "_CONFINE_SAVE_PATHS", False):
             self.assertEqual(server._download_dir("/anywhere"), "/anywhere")
+
+
+class TestSearchResponseSize(unittest.TestCase):
+    def test_limit_keeps_best_ranked_works_and_shortens_abstracts(self):
+        papers = [
+            {"paper_id": str(n), "title": f"Distinct topic number {n} about things", "authors": f"Author{n} X",
+             "abstract": "word " * 400, "source": "arxiv"}
+            for n in range(30)
+        ]
+        with patch.object(server, "_search_source", new=AsyncMock(return_value=papers)):
+            result = asyncio.run(server.search_papers("q", sources="arxiv", limit=5))
+
+        self.assertEqual(result["total"], 30)
+        self.assertEqual(result["returned"], 5)
+        self.assertEqual([p["paper_id"] for p in result["papers"]], ["0", "1", "2", "3", "4"])
+        abstract = result["papers"][0]["abstract"]
+        self.assertTrue(abstract.endswith("…"))
+        self.assertLessEqual(len(abstract), server.ABSTRACT_CHARS + 1)
+
+    def test_short_abstracts_are_untouched_and_default_limit_is_20(self):
+        papers = [{"paper_id": str(n), "title": f"Paper on subject {n}", "authors": f"A{n} B",
+                   "abstract": "short", "source": "arxiv"} for n in range(25)]
+        with patch.object(server, "_search_source", new=AsyncMock(return_value=papers)):
+            result = asyncio.run(server.search_papers("q", sources="arxiv"))
+        self.assertEqual(result["returned"], 20)
+        self.assertEqual(result["papers"][0]["abstract"], "short")

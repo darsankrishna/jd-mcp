@@ -15,15 +15,14 @@ WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin/paper-search-mcp /usr/local/bin/paper-search-mcp
 
-# Environment variables (override at runtime with -e)
-ENV PAPER_SEARCH_MCP_UNPAYWALL_EMAIL=""
-ENV PAPER_SEARCH_MCP_CORE_API_KEY=""
-ENV PAPER_SEARCH_MCP_SEMANTIC_SCHOLAR_API_KEY=""
-ENV PAPER_SEARCH_MCP_ZENODO_ACCESS_TOKEN=""
-ENV PAPER_SEARCH_MCP_DOAJ_API_KEY=""
-ENV PAPER_SEARCH_MCP_GOOGLE_SCHOLAR_PROXY_URL=""
-ENV PAPER_SEARCH_MCP_IEEE_API_KEY=""
-ENV PAPER_SEARCH_MCP_ACM_API_KEY=""
+# API keys are passed at runtime with -e (PAPER_SEARCH_MCP_* or legacy names);
+# empty ENV placeholders here would shadow the legacy names, so none are baked in.
+
+# Unprivileged user; /data holds downloads and the identity store (mount a volume).
+RUN useradd --uid 10001 --create-home app && mkdir /data && chown app /data
+USER app
+WORKDIR /data
+ENV PAPER_SEARCH_MCP_IDENTITY_DB_PATH=/data/identity.sqlite3
 
 # Use the entry point script
 CMD ["paper-search-mcp"]
