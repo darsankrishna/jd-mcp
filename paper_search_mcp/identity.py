@@ -11,6 +11,8 @@ cannot-link vetoes -> works -> persistent UPIDs -> reciprocal rank fusion.
 from __future__ import annotations
 
 import json
+import logging
+import math
 import re
 import sqlite3
 import unicodedata
@@ -22,11 +24,8 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import unquote
 
 RRF_K = 60
-MATCH_THRESHOLD = 0.8
-FUZZY_TITLE_MIN = 0.85
-JOURNAL_REF_TITLE_MIN = 0.5
-AUTHOR_OVERLAP_MIN = 0.5
 MAX_YEAR_GAP = 2
+MODEL_PATH = Path(__file__).with_name("match_model.json")
 
 PREPRINT_SOURCES = frozenset({"arxiv", "biorxiv", "medrxiv", "chemrxiv", "ssrn", "iacr"})
 # Single-valued identifier types; more than one value in a work is a conflict.
@@ -280,26 +279,67 @@ def _journal_ref_matches(preprint: _Features, other: _Features) -> bool:
     return bool(ref_tokens & {t for t in title_tokens(other.venue) if len(t) >= 3})
 
 
+FEATURES = (
+    "title_dice", "title_token_jaccard", "author_overlap", "first_author_match",
+    "year_gap", "journal_ref_match", "venue_overlap", "title_length_ratio",
+)
+
+
+def pair_features(a: _Features, b: _Features) -> List[float]:
+    """Pairwise features for the match classifier, each in [0, 1], ordered as FEATURES."""
+    tokens_a, tokens_b = set(title_tokens(a.title)), set(title_tokens(b.title))
+    compact_a = len(normalize_title(a.title).replace(" ", ""))
+    compact_b = len(normalize_title(b.title).replace(" ", ""))
+    venue_a = {t for t in title_tokens(a.venue or a.journal_ref) if len(t) >= 3}
+    venue_b = {t for t in title_tokens(b.venue or b.journal_ref) if len(t) >= 3}
+    return [
+        title_similarity(a.title, b.title),
+        len(tokens_a & tokens_b) / len(tokens_a | tokens_b) if tokens_a | tokens_b else 0.0,
+        author_overlap(a.authors, b.authors),
+        float(bool(a.authors and b.authors and author_overlap(a.authors[:1], b.authors[:1]) == 1.0)),
+        min(abs(a.year - b.year), MAX_YEAR_GAP) / MAX_YEAR_GAP if a.year and b.year else 0.0,
+        float(_journal_ref_matches(a, b) or _journal_ref_matches(b, a)),
+        float(bool(venue_a & venue_b)),
+        min(compact_a, compact_b) / max(compact_a, compact_b, 1),
+    ]
+
+
+def _load_model() -> Optional[Dict[str, Any]]:
+    try:
+        model = json.loads(MODEL_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None  # only while benchmarks/dedup/train.py builds the first model
+    if model.get("features") != list(FEATURES):
+        # Loads as missing so train.py can rebuild it; scoring raises until then.
+        logging.getLogger(__name__).warning("%s was trained on other features; retrain it", MODEL_PATH.name)
+        return None
+    return model
+
+
+MODEL = _load_model()
+MATCH_THRESHOLD = MODEL["threshold"] if MODEL else 1.0
+
+
+def match_probability(features: List[float], model: Optional[Dict[str, Any]] = None) -> float:
+    model = model or MODEL
+    if model is None:
+        raise RuntimeError(f"{MODEL_PATH.name} is missing; run python -m benchmarks.dedup.train")
+    z = model["bias"] + sum(w * x for w, x in zip(model["weights"], features))
+    return 1.0 / (1.0 + math.exp(-z))
+
+
 def score_pair(a: _Features, b: _Features) -> Tuple[float, str]:
-    """Return (confidence, reason) for records without a shared identifier."""
+    """Return (match probability, reason) for records without a shared identifier."""
     if a.generic or b.generic:
         return 0.0, "generic title; identifier evidence required"
     if not a.authors or not b.authors:
         return 0.0, "author list missing; identifier evidence required"
-    title = title_similarity(a.title, b.title)
-    authors = author_overlap(a.authors, b.authors)
-    if authors < AUTHOR_OVERLAP_MIN:
-        return 0.0, f"author overlap {authors:.2f} below {AUTHOR_OVERLAP_MIN}"
-    for preprint, other in ((a, b), (b, a)):
-        if title >= JOURNAL_REF_TITLE_MIN and _journal_ref_matches(preprint, other):
-            confidence = 0.5 * title + 0.3 * authors + 0.2
-            return confidence, (
-                f"arXiv journal-ref '{preprint.journal_ref}' matches venue/year; "
-                f"title similarity {title:.2f}, author overlap {authors:.2f}"
-            )
-    if title < FUZZY_TITLE_MIN:
-        return 0.0, f"title similarity {title:.2f} below {FUZZY_TITLE_MIN}"
-    return 0.6 * title + 0.4 * authors, f"title similarity {title:.2f}, author overlap {authors:.2f}"
+    x = pair_features(a, b)
+    probability = match_probability(x)
+    reason = f"classifier p={probability:.2f}: title similarity {x[0]:.2f}, author overlap {x[2]:.2f}"
+    if x[5]:
+        reason += ", arXiv journal-ref matches venue/year"
+    return probability, reason
 
 
 # ---------------------------------------------------------------------------
@@ -354,27 +394,34 @@ def resolve(
         for upid in sorted({stored[k] for k, _, _ in ids if k in stored}):
             ids.append((upid, "persisted crosswalk", False))
 
-    # Identifier edges: records sharing any identifier node.
+    # Edge kinds: 0 shared identifier (never vetoed), 1 persisted crosswalk UPID
+    # (vetoed, so a stored wrong merge splits), 2 pairwise evidence (vetoed).
     edges: List[Tuple[int, float, str, str, int, int, str]] = []
-    first_holder: Dict[str, Tuple[int, str]] = {}
+    holders: Dict[str, List[Tuple[int, str]]] = {}
     for i, ids in enumerate(identifiers):
         for key, reason, _primary in ids:
-            if key in first_holder and first_holder[key][0] != i:
-                j, other_reason = first_holder[key]
-                edges.append((0, -1.0, *sorted((keys[i], keys[j])), i, j,
-                              f"shared identifier {key} ({other_reason} / {reason})"))
-            first_holder.setdefault(key, (i, reason))
+            persisted = key.startswith("upid:")
+            # A vetoed persisted link to one holder must not hide a valid link to another.
+            for j, other_reason in holders.get(key, [])[: None if persisted else 1]:
+                if j != i:
+                    edges.append((1 if persisted else 0, -1.0, *sorted((keys[i], keys[j])), i, j,
+                                  f"shared identifier {key} ({other_reason} / {reason})"))
+            holders.setdefault(key, []).append((i, reason))
 
     # Evidence edges: all pairs. shortcut: O(n^2) pairs, fine for ~100 records per query;
     # add title-bigram blocking if per-query volume grows to thousands.
     features = [_Features(r) for r in records]
     rejected: List[Tuple[str, str, float, str]] = []
     vetoes: Dict[Tuple[int, int], Optional[str]] = {}
+    # Vetoes stored by earlier searches stay in force: a pair split once on fuller
+    # metadata is not re-merged when a later source omits that metadata.
+    stored_vetoes = store.vetoes(keys) if store else {}
 
     def pair_veto(i: int, j: int) -> Optional[str]:
         pair = (min(i, j), max(i, j))
         if pair not in vetoes:
-            vetoes[pair] = veto(features[i], features[j])
+            stored_reason = stored_vetoes.get(tuple(sorted((keys[i], keys[j]))))
+            vetoes[pair] = f"stored veto: {stored_reason}" if stored_reason else veto(features[i], features[j])
         return vetoes[pair]
 
     for i in range(len(records)):
@@ -382,7 +429,7 @@ def resolve(
             confidence, reason = score_pair(features[i], features[j])
             reason_veto = pair_veto(i, j)
             if confidence >= MATCH_THRESHOLD and not reason_veto:
-                edges.append((1, -confidence, *sorted((keys[i], keys[j])), i, j, reason))
+                edges.append((2, -confidence, *sorted((keys[i], keys[j])), i, j, reason))
             elif reason_veto and title_similarity(features[i].title, features[j].title) >= 0.6:
                 rejected.append((*sorted((keys[i], keys[j])), confidence, f"vetoed: {reason_veto}"))
 
@@ -395,16 +442,17 @@ def resolve(
         ri, rj = uf.find(i), uf.find(j)
         if ri == rj:
             continue
-        if kind == 1:
+        if kind > 0:
             blocking = next(
-                (pair_veto(x, y) for x in uf.members[ri] for y in uf.members[rj] if pair_veto(x, y)),
-                None,
+                ((x, y) for x in uf.members[ri] for y in uf.members[rj] if pair_veto(x, y)), None,
             )
             if blocking:
-                rejected.append((key_a, key_b, -neg_conf, f"vetoed by cluster member: {blocking}"))
+                x, y = blocking
+                # Record the pair that actually conflicts, not the edge's endpoints.
+                rejected.append((*sorted((keys[x], keys[y])), -neg_conf, f"vetoed: {pair_veto(x, y)}"))
                 continue
         uf.union(i, j)
-        accepted.append((i, j, 1.0 if kind == 0 else -neg_conf, reason))
+        accepted.append((i, j, -neg_conf if kind == 2 else 1.0, reason))
 
     clusters: Dict[int, List[int]] = {}
     for i in range(len(records)):
@@ -532,6 +580,8 @@ class IdentityStore:
         identifier TEXT NOT NULL, record TEXT NOT NULL, upid TEXT NOT NULL,
         PRIMARY KEY (identifier, record));
     CREATE TABLE IF NOT EXISTS redirects (old_upid TEXT PRIMARY KEY, new_upid TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS splits (
+        old_upid TEXT NOT NULL, new_upid TEXT NOT NULL, PRIMARY KEY (old_upid, new_upid));
     CREATE TABLE IF NOT EXISTS edges (
         a TEXT NOT NULL, b TEXT NOT NULL, upid TEXT NOT NULL, merged INTEGER NOT NULL,
         confidence REAL NOT NULL, reason TEXT NOT NULL, PRIMARY KEY (a, b));
@@ -580,18 +630,39 @@ class IdentityStore:
             # Re-read under the write lock: a concurrent search may have minted a
             # UPID for these identifiers since resolve() looked them up.
             connection.execute("BEGIN IMMEDIATE")
+            claims: List[Dict[str, int]] = []
             for work in works:
-                current = self._lookup(connection, sorted({ident for ident, _ in work["_identifiers"]}))
-                candidates = sorted(
-                    {self._follow(connection, u) for u in work["_stored_upids"]} | set(current.values())
-                )
-                upid = candidates[0] if candidates else f"upid:{uuid.uuid4().hex}"
-                for old in candidates[1:]:
+                identifiers = sorted({ident for ident, _ in work["_identifiers"]})
+                current = self._lookup(connection, identifiers)
+                counts = {self._follow(connection, u): 0 for u in work["_stored_upids"]}
+                for ident in identifiers:
+                    if ident in current:
+                        counts[current[ident]] = counts.get(current[ident], 0) + 1
+                claims.append(counts)
+            # A stored UPID claimed by several works was split by a veto: the work
+            # holding most of its identifiers keeps it (ties: smallest record key).
+            owner: Dict[str, int] = {}
+            for index, counts in enumerate(claims):
+                for upid, count in counts.items():
+                    best = owner.get(upid)
+                    if best is None or (-count, works[index]["_identifiers"][0][1]) < (
+                        -claims[best][upid], works[best]["_identifiers"][0][1]
+                    ):
+                        owner[upid] = index
+
+            record_upid: Dict[str, str] = {}
+            for index, work in enumerate(works):
+                mine = sorted(u for u in claims[index] if owner[u] == index)
+                upid = mine[0] if mine else f"upid:{uuid.uuid4().hex}"
+                for old in mine[1:]:
                     connection.execute("INSERT OR REPLACE INTO redirects VALUES (?, ?)", (old, upid))
                     connection.execute("UPDATE crosswalk SET upid=? WHERE upid=?", (upid, old))
                     connection.execute("UPDATE edges SET upid=? WHERE upid=?", (upid, old))
                     connection.execute("UPDATE OR IGNORE quarantine SET upid=? WHERE upid=?", (upid, old))
+                for old in sorted(u for u in claims[index] if owner[u] != index):
+                    connection.execute("INSERT OR IGNORE INTO splits VALUES (?, ?)", (old, upid))
                 work["upid"] = upid
+                record_upid.update({record: upid for _, record in work["_identifiers"]})
                 connection.executemany(
                     "INSERT OR REPLACE INTO crosswalk VALUES (?, ?, ?)",
                     [(ident, record, upid) for ident, record in work["_identifiers"]],
@@ -605,11 +676,39 @@ class IdentityStore:
                         "INSERT OR REPLACE INTO quarantine VALUES (?, ?, ?, ?)",
                         [(upid, id_type, e["value"], json.dumps(e["sources"])) for e in entries],
                     )
+
+            # Stored merges between records that now resolve to different works are
+            # demoted, keeping the veto as the reason; the rest follow their work.
+            veto_reason = {(a, b): r for a, b, _c, r in rejected}
+            touched = sorted({u for counts in claims for u in counts})
+            stored_edges = connection.execute(
+                f"SELECT a, b, upid, reason FROM edges WHERE merged=1 AND upid IN ({','.join('?' * len(touched))})",
+                touched,
+            ).fetchall() if touched else []
+            for a, b, upid, reason in stored_edges:
+                if a not in record_upid or b not in record_upid:
+                    continue
+                if record_upid[a] == record_upid[b]:
+                    connection.execute("UPDATE edges SET upid=? WHERE a=? AND b=?", (record_upid[a], a, b))
+                else:
+                    why = veto_reason.get((a, b), "records now resolve to different works")
+                    connection.execute(
+                        "UPDATE edges SET merged=0, upid='', reason=? WHERE a=? AND b=?",
+                        (f"split ({why}); previously merged: {reason}", a, b),
+                    )
             # A veto never overwrites a merge already recorded for the pair.
             connection.executemany(
                 "INSERT OR IGNORE INTO edges VALUES (?, ?, '', 0, ?, ?)",
                 [(a, b, round(c, 4), r) for a, b, c, r in rejected],
             )
+
+    def vetoes(self, record_keys: Iterable[str]) -> Dict[Tuple[str, str], str]:
+        """Stored pairwise vetoes (rejected or split pairs) among these records."""
+        wanted = set(record_keys)
+        with closing(self._connect()) as connection:
+            rows = connection.execute("SELECT a, b, reason FROM edges WHERE merged=0").fetchall()
+        # shortcut: scans all stored vetoes per search; index by record if the store grows large.
+        return {(a, b): reason for a, b, reason in rows if a in wanted and b in wanted}
 
     def _upid_of(self, connection: sqlite3.Connection, identifier: str) -> Tuple[str, List[str]]:
         """Resolve a DOI, arXiv id, prefixed identifier or UPID to (upid, record keys)."""
@@ -634,6 +733,10 @@ class IdentityStore:
                 "SELECT DISTINCT identifier FROM crosswalk WHERE upid=? ORDER BY identifier", (upid,))]
             redirected_from = [r[0] for r in connection.execute(
                 "SELECT old_upid FROM redirects WHERE new_upid=?", (upid,))]
+            split_from = [r[0] for r in connection.execute(
+                "SELECT old_upid FROM splits WHERE new_upid=?", (upid,))]
+            split_into = [r[0] for r in connection.execute(
+                "SELECT new_upid FROM splits WHERE old_upid=?", (upid,))]
             quarantine = [
                 {"id_type": t, "value": v, "sources": json.loads(s)}
                 for t, v, s in connection.execute(
@@ -641,6 +744,7 @@ class IdentityStore:
             ]
             return {"identifier": identifier, "known": True, "upid": upid,
                     "identifiers": identifiers, "redirected_from": redirected_from,
+                    "split_from": split_from, "split_into": split_into,
                     "quarantined_ids": quarantine}
 
     def explain(self, identifier_a: str, identifier_b: str) -> Dict[str, Any]:

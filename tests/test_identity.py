@@ -279,3 +279,41 @@ def test_author_keys():
     assert author_key("He, Kaiming") == author_key("Kaiming He") == ("he", "k")
     assert author_key("A. Vaswani") == ("vaswani", "a")
     assert author_key("Müller, Jörg") == author_key("Jorg Muller")
+
+
+def test_persisted_wrong_merge_is_split_when_a_veto_appears(store):
+    # First search: no years yet, so the two records merge on title and author.
+    first = resolve({
+        "core": [rec("core", "1", "Hydrodynamics of stellar interiors", "A. Smith")],
+        "hal": [rec("hal", "2", "Hydrodynamics of Stellar Interiors", "A. Smith")],
+    }, store)
+    assert len(first) == 1
+    upid = first[0]["upid"]
+    # Later metadata reveals a 20-year gap: the stored merge must not survive it.
+    later = resolve({
+        "core": [rec("core", "1", "Hydrodynamics of stellar interiors", "A. Smith", date="1990")],
+        "hal": [rec("hal", "2", "Hydrodynamics of Stellar Interiors", "A. Smith", date="2010")],
+    }, store)
+    assert len(later) == 2
+    upids = {w["records"][0]["source"]: w["upid"] for w in later}
+    assert upids["core"] == upid  # smallest record key keeps the UPID on a tie
+    assert upids["hal"] != upid
+    assert store.describe("src:hal:2")["split_from"] == [upid]
+    explanation = store.explain("src:core:1", "src:hal:2")
+    assert explanation["merged"] is False
+    assert "year gap 20" in explanation["reason"]
+    # The split is itself persistent: a year-less search no longer re-merges them.
+    again = resolve({
+        "core": [rec("core", "1", "Hydrodynamics of stellar interiors", "A. Smith")],
+        "hal": [rec("hal", "2", "Hydrodynamics of Stellar Interiors", "A. Smith")],
+    }, store)
+    assert {w["upid"] for w in again} == set(upids.values())
+
+
+def test_persisted_link_still_merges_records_without_a_veto(store):
+    resolve({"arxiv": [rec("arxiv", "2101.00001", "T", "Ada Lovelace", doi="10.1/pub")]}, store)
+    works = resolve({
+        "arxiv": [rec("arxiv", "2101.00001", "T", "Ada Lovelace", date="2021")],
+        "crossref": [rec("crossref", "10.1/pub", "U", "Ada Lovelace", doi="10.1/pub", date="2022")],
+    }, store)
+    assert len(works) == 1

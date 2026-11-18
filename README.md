@@ -40,30 +40,48 @@ the `paper-search search` CLI.
    OpenAlex and Semantic Scholar ids, Crossref relation targets, and the source
    record itself (`src:<source>:<paper_id>`).
 2. **Edges**: records sharing any identifier are linked (confidence 1.0). Records
-   without one are scored pairwise: character-bigram title similarity plus author
-   overlap on (surname, first initial), so "He, Kaiming" = "Kaiming He" and
-   "A. Vaswani" = "Ashish Vaswani". An arXiv `journal-ref` that names the other
-   record's year or venue lowers the title threshold for reworded titles.
+   without one are scored by a trained logistic-regression classifier
+   (`paper_search_mcp/match_model.json`). Its features are title bigram and token
+   similarity, author overlap on (surname, first initial) (so "He, Kaiming" =
+   "Kaiming He" and "A. Vaswani" = "Ashish Vaswani"), first-author match, year gap,
+   arXiv `journal-ref` match, venue overlap and title length ratio. The merge
+   confidence is the classifier's probability.
 3. **Hard vetoes** (cannot-link constraints): different title numbers or parts
    (Part I vs Part II), erratum/corrigendum/retraction vs not, disjoint author
    lists, and a year gap over 2. Fuzzy matching also requires author lists on both
    sides and a non-generic title ("Introduction", "Editorial", ...).
-4. **Union-find**: identifier edges first, then evidence edges by confidence, with
-   ties broken by record key, so the result does not depend on record order. A
-   union is refused if any pair across the two clusters is vetoed, so chains
-   cannot pull Part II into Part I.
+4. **Union-find**: identifier edges first, then links from the persistent
+   crosswalk, then classifier edges by confidence, with ties broken by record key,
+   so the result does not depend on record order. Crosswalk and classifier links
+   are refused if any pair across the two clusters is vetoed, so chains cannot
+   pull Part II into Part I and a stored merge cannot outlive a veto.
 5. **Quarantine**: if a merged work has two values for a single-valued id (two
    published DOIs, two PMIDs, ...), neither becomes canonical; all are listed under
    `quarantined_ids` with their sources and stored, instead of one overwriting the other.
 6. **Persistent UPIDs**: a SQLite crosswalk (`PAPER_SEARCH_MCP_IDENTITY_DB_PATH`,
    default `~/.cache/paper-search-mcp/identity.sqlite3`) maps identifiers to UPIDs
    across queries and sessions. When a later search links two UPIDs, one survives
-   and the other redirects to it. Merge evidence and vetoed candidates are stored
-   for `explain_match`.
+   and the other redirects to it. If a veto later splits a stored UPID, the work
+   holding most of its identifiers keeps it, the other gets a new UPID
+   (`split_from` / `split_into` in `get_paper`), and the old merge is kept with
+   the veto as its reason. Stored vetoes remain cannot-link constraints in later
+   searches, so a pair split on fuller metadata is not re-merged when a later
+   source omits it. Merge evidence and vetoed candidates are stored for
+   `explain_match`.
 7. **Fields and ranking**: published records supply bibliographic fields before
    preprints; `provenance` records which source supplied each field, and
    `pdf_urls` keeps every source's link. Works are ranked by
    `sum(1 / (60 + rank_in_source))`.
+
+## Deduplication benchmark
+
+[`benchmarks/dedup`](benchmarks/dedup/README.md) holds a labelled gold set (9
+hand-built cases from the analysis and 588 generated ones, split into train
+and test by seed work), the classifier training script, and a runner that scores
+jd-mcp, upstream paper-search-mcp and a port of scholarmcp. Liyux3/scholar-mcp
+can be added from your own checkout once you've checked its licence. Results are
+in [RESULTS.md](benchmarks/dedup/RESULTS.md). The records are constructed, so
+the numbers reflect the case types in the set, not live data.
 
 Titles are normalised Unicode-safely: NFKC + casefold, keeping letters, marks and
 numbers of every script (Indic vowel signs and viramas are marks), so Chinese,

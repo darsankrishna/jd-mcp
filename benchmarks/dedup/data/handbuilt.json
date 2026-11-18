@@ -1,0 +1,384 @@
+[
+ {
+  "id": "hb-preprint-reworded",
+  "split": "test",
+  "category": "arxiv_doi_field",
+  "label": "same",
+  "records": [
+   {
+    "source": "arxiv",
+    "paper_id": "1706.03762v5",
+    "title": "Attention Is All You Need",
+    "authors": "Ashish Vaswani; Noam Shazeer",
+    "doi": "10.5555/3295222.3295349",
+    "published_date": "2017",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {}
+   },
+   {
+    "source": "crossref",
+    "paper_id": "10.5555/3295222.3295349",
+    "title": "Attention is all you need: transformers for sequence transduction",
+    "authors": "Vaswani, Ashish; Shazeer, Noam",
+    "doi": "10.5555/3295222.3295349",
+    "published_date": "2017",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {}
+   }
+  ],
+  "clusters": [
+   [
+    0,
+    1
+   ]
+  ]
+ },
+ {
+  "id": "hb-resnet-dois",
+  "split": "test",
+  "category": "arxiv_doi_vs_venue_doi",
+  "label": "same",
+  "records": [
+   {
+    "source": "semantic",
+    "paper_id": "s2resnet",
+    "title": "Deep Residual Learning for Image Recognition",
+    "authors": "Kaiming He; Xiangyu Zhang; Shaoqing Ren; Jian Sun",
+    "doi": "10.48550/arXiv.1512.03385",
+    "published_date": "2015",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {}
+   },
+   {
+    "source": "crossref",
+    "paper_id": "10.1109/CVPR.2016.90",
+    "title": "Deep Residual Learning for Image Recognition",
+    "authors": "Kaiming He; Xiangyu Zhang; Shaoqing Ren; Jian Sun",
+    "doi": "10.1109/CVPR.2016.90",
+    "published_date": "2016",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {}
+   }
+  ],
+  "clusters": [
+   [
+    0,
+    1
+   ]
+  ]
+ },
+ {
+  "id": "hb-punctuation",
+  "split": "test",
+  "category": "punctuation_case",
+  "label": "same",
+  "records": [
+   {
+    "source": "core",
+    "paper_id": "1",
+    "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+    "authors": "Jacob Devlin; Ming-Wei Chang",
+    "doi": "",
+    "published_date": "",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {}
+   },
+   {
+    "source": "hal",
+    "paper_id": "2",
+    "title": "bert pre training of deep bidirectional transformers for language understanding.",
+    "authors": "Jacob Devlin; Ming-Wei Chang",
+    "doi": "",
+    "published_date": "",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {}
+   }
+  ],
+  "clusters": [
+   [
+    0,
+    1
+   ]
+  ]
+ },
+ {
+  "id": "hb-initials",
+  "split": "test",
+  "category": "author_initials",
+  "label": "same",
+  "records": [
+   {
+    "source": "dblp",
+    "paper_id": "1",
+    "title": "Attention Is All You Need",
+    "authors": "A. Vaswani; N. Shazeer",
+    "doi": "",
+    "published_date": "",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {}
+   },
+   {
+    "source": "core",
+    "paper_id": "2",
+    "title": "Attention is all you need",
+    "authors": "Ashish Vaswani; Noam Shazeer",
+    "doi": "",
+    "published_date": "",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {}
+   }
+  ],
+  "clusters": [
+   [
+    0,
+    1
+   ]
+  ]
+ },
+ {
+  "id": "hb-comma",
+  "split": "test",
+  "category": "author_comma",
+  "label": "same",
+  "records": [
+   {
+    "source": "europepmc",
+    "paper_id": "1",
+    "title": "Deep residual learning",
+    "authors": "He, Kaiming; Sun, Jian",
+    "doi": "",
+    "published_date": "",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {}
+   },
+   {
+    "source": "openaire",
+    "paper_id": "2",
+    "title": "Deep Residual Learning",
+    "authors": "Kaiming He; Jian Sun",
+    "doi": "",
+    "published_date": "",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {}
+   }
+  ],
+  "clusters": [
+   [
+    0,
+    1
+   ]
+  ]
+ },
+ {
+  "id": "hb-doi-prefix",
+  "split": "test",
+  "category": "doi_prefix",
+  "label": "same",
+  "records": [
+   {
+    "source": "openalex",
+    "paper_id": "W1",
+    "title": "X",
+    "authors": "",
+    "doi": "https://doi.org/10.1000/ABC",
+    "published_date": "",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {}
+   },
+   {
+    "source": "crossref",
+    "paper_id": "10.1000/abc",
+    "title": "Y",
+    "authors": "",
+    "doi": "10.1000/abc",
+    "published_date": "",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {}
+   }
+  ],
+  "clusters": [
+   [
+    0,
+    1
+   ]
+  ]
+ },
+ {
+  "id": "hb-introduction",
+  "split": "test",
+  "category": "generic_title",
+  "label": "different",
+  "records": [
+   {
+    "source": "crossref",
+    "paper_id": "10.1/a",
+    "title": "Introduction",
+    "authors": "Jane Roe",
+    "doi": "10.1/a",
+    "published_date": "2010",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {}
+   },
+   {
+    "source": "doaj",
+    "paper_id": "x",
+    "title": "Introduction",
+    "authors": "",
+    "doi": "",
+    "published_date": "2010",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {}
+   }
+  ],
+  "clusters": [
+   [
+    0
+   ],
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "id": "hb-part-one-two",
+  "split": "test",
+  "category": "part_numbers",
+  "label": "different",
+  "records": [
+   {
+    "source": "core",
+    "paper_id": "p1",
+    "title": "Thermodynamics of black holes, Part I",
+    "authors": "S. Hawking",
+    "doi": "",
+    "published_date": "1976",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {}
+   },
+   {
+    "source": "hal",
+    "paper_id": "p2",
+    "title": "Thermodynamics of black holes, Part II",
+    "authors": "S. Hawking",
+    "doi": "",
+    "published_date": "1976",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {}
+   }
+  ],
+  "clusters": [
+   [
+    0
+   ],
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "id": "hb-chain",
+  "split": "test",
+  "category": "chain_three",
+  "label": "same",
+  "records": [
+   {
+    "source": "crossref",
+    "paper_id": "10.1/x",
+    "title": "Some work",
+    "authors": "Ada Lovelace",
+    "doi": "10.1/x",
+    "published_date": "",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {}
+   },
+   {
+    "source": "arxiv",
+    "paper_id": "2101.00001v2",
+    "title": "Some different-looking title",
+    "authors": "Ada Lovelace",
+    "doi": "10.1/x",
+    "published_date": "",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {}
+   },
+   {
+    "source": "semantic",
+    "paper_id": "s2c",
+    "title": "Yet another wording entirely",
+    "authors": "Ada Lovelace",
+    "doi": "",
+    "published_date": "",
+    "abstract": "",
+    "url": "",
+    "pdf_url": "",
+    "citations": 0,
+    "extra": {
+     "arxiv_ids": [
+      "2101.00001"
+     ]
+    }
+   }
+  ],
+  "clusters": [
+   [
+    0,
+    1,
+    2
+   ]
+  ]
+ }
+]

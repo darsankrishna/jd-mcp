@@ -74,4 +74,8 @@ jobs:
           tests/test_acm.py
           tests/test_fallback.py
           tests/test_paper.py
+          tests/test_server.py
+          tests/test_identity.py
+          tests/test_identity_connectors.py
+          tests/test_dedup_benchmark.py
           -q --tb=short
