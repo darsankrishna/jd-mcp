@@ -178,3 +178,6 @@ test_downloads/
 dsh/node_modules/
 dsh/npm-debug.log*
 dsh/.npm/
+# Local HTTPS for Keycloak testing
+Caddyfile.local
+caddy-root.crt

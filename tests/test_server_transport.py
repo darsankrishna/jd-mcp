@@ -17,6 +17,8 @@ class TestServerTransport(unittest.TestCase):
         "PAPER_SEARCH_HOST",
         "PAPER_SEARCH_PORT",
         "PAPER_SEARCH_PATH",
+        "PAPER_SEARCH_MCP_ALLOWED_HOSTS",
+        "PAPER_SEARCH_ALLOWED_HOSTS",
     )
 
     def setUp(self):
@@ -27,6 +29,8 @@ class TestServerTransport(unittest.TestCase):
             server.mcp.settings.host,
             server.mcp.settings.port,
             server.mcp.settings.streamable_http_path,
+            server.mcp.settings.transport_security,
+            server._CONFINE_SAVE_PATHS,
         )
 
     def tearDown(self):
@@ -39,6 +43,8 @@ class TestServerTransport(unittest.TestCase):
             server.mcp.settings.host,
             server.mcp.settings.port,
             server.mcp.settings.streamable_http_path,
+            server.mcp.settings.transport_security,
+            server._CONFINE_SAVE_PATHS,
         ) = self.saved_settings
 
     def test_stdio_is_default_and_starts_orphan_watchdog(self):
@@ -79,6 +85,40 @@ class TestServerTransport(unittest.TestCase):
         self.assertEqual(server.mcp.settings.host, "0.0.0.0")
         self.assertEqual(server.mcp.settings.port, 9010)
         self.assertEqual(server.mcp.settings.streamable_http_path, "/papers")
+
+    def test_allowed_hosts_extend_the_localhost_allowlist(self):
+        with patch.object(server.mcp, "run"):
+            server.main(["--transport", "streamable-http", "--host", "0.0.0.0",
+                         "--allowed-hosts", "papers.example.org, box.tailnet.ts.net:*"])
+        security = server.mcp.settings.transport_security
+        self.assertTrue(security.enable_dns_rebinding_protection)
+        self.assertIn("localhost:*", security.allowed_hosts)
+        self.assertIn("papers.example.org", security.allowed_hosts)
+        self.assertIn("box.tailnet.ts.net:*", security.allowed_hosts)
+        self.assertIn("https://papers.example.org", security.allowed_origins)
+
+    def test_allowed_host_is_served_and_others_still_refused(self):
+        from starlette.testclient import TestClient
+
+        os.environ["PAPER_SEARCH_MCP_ALLOWED_HOSTS"] = "papers.example.org"
+        with patch.object(server.mcp, "run"):
+            server.main(["--transport", "streamable-http", "--host", "0.0.0.0"])
+        initialize = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-11-25", "capabilities": {},
+            "clientInfo": {"name": "test", "version": "0"}}}
+        headers = {"Accept": "application/json, text/event-stream"}
+        with patch.object(server.mcp, "_session_manager", None):
+            with TestClient(server.mcp.streamable_http_app(), base_url="http://papers.example.org") as client:
+                self.assertEqual(client.post("/mcp", json=initialize, headers=headers).status_code, 200)
+                refused = client.post("/mcp", json=initialize, headers={**headers, "Host": "evil.example"})
+                self.assertEqual(refused.status_code, 421)
+
+    def test_invalid_allowed_hosts_fail_before_server_start(self):
+        for value in ("*", "https://papers.example.org", "papers.example.org/mcp", "a b"):
+            with self.subTest(value=value), patch.object(server.mcp, "run") as run:
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    server.main(["--transport", "streamable-http", "--allowed-hosts", value])
+                run.assert_not_called()
 
     def test_prefixed_environment_configures_network_transport(self):
         os.environ.update(

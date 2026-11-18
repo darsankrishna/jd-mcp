@@ -11,6 +11,7 @@ import threading
 import time
 import unicodedata
 from collections.abc import Awaitable
+from pathlib import Path
 from concurrent.futures import Future, ThreadPoolExecutor
 from threading import BoundedSemaphore
 from typing import Annotated, Any, Dict, List, Literal, Optional
@@ -20,6 +21,7 @@ from urllib.parse import unquote
 import httpx
 import requests
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from .academic_platforms.arxiv import ArxivSearcher
 from .academic_platforms.base_search import BASESearcher
@@ -97,6 +99,22 @@ _IDENTITY_STORE = IdentityStore(
     get_env("IDENTITY_DB_PATH", "~/.cache/paper-search-mcp/identity.sqlite3")
 )
 MAX_PDF_BYTES = int(get_env("MAX_PDF_BYTES", str(50 * 1024 * 1024)))
+_CONFINE_SAVE_PATHS = False  # main() turns this on for HTTP transports
+
+
+def _download_dir(save_path: str) -> str:
+    """Over HTTP, refuse save paths outside the PDF root extract_sections reads."""
+    if not _CONFINE_SAVE_PATHS:
+        return save_path
+    configured = get_env("SECTION_PDF_ROOT", "./downloads").strip()
+    if not configured:
+        raise ValueError("PAPER_SEARCH_MCP_SECTION_PDF_ROOT must not be empty")
+    root = Path(configured).expanduser().resolve()
+    # resolve() follows symlinks, so a link inside the root pointing out is refused too.
+    target = Path(save_path or ".").expanduser().resolve()
+    if not target.is_relative_to(root):
+        raise ValueError(f"save_path must be inside the download root {configured!r}")
+    return str(target)
 
 # Instances of searchers
 arxiv_searcher = ArxivSearcher()
@@ -744,6 +762,7 @@ async def download_paper(
     Returns:
         Download path on success or explanatory error message.
     """
+    save_path = _download_dir(save_path)
     source_name = source.strip().lower()
     attempt_errors: List[str] = []
     primary_error = ""
@@ -824,6 +843,7 @@ async def read_paper(source: str, paper_id: str, save_path: str = "./downloads")
     Returns:
         Extracted text, or the connector's explanation when reading is unsupported.
     """
+    save_path = _download_dir(save_path)
     searcher = _searcher(source.strip().lower())
     if not hasattr(searcher, "read_paper") or source.strip().lower() == "scopus":
         raise ValueError(f"Source '{source}' does not support reading papers.")
@@ -1020,6 +1040,18 @@ def _valid_http_path(raw: str) -> str:
     return path
 
 
+_ALLOWED_HOST = re.compile(r"^(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?)(?::(?:\d{1,5}|\*))?$")
+
+
+def _valid_allowed_hosts(raw: str) -> list[str]:
+    hosts = [part.strip() for part in raw.split(",") if part.strip()]
+    for host in hosts:
+        # Hostnames only: a scheme, path or bare '*' would disable the check it extends.
+        if not _ALLOWED_HOST.fullmatch(host):
+            raise argparse.ArgumentTypeError(f"invalid allowed host {host!r}; use host, host:port or host:*")
+    return hosts
+
+
 def _build_server_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Paper Search MCP server")
     parser.add_argument(
@@ -1044,6 +1076,13 @@ def _build_server_parser() -> argparse.ArgumentParser:
         type=_valid_http_path,
         default=_server_env("PATH", "/mcp"),
         help="Streamable HTTP endpoint path (env: PAPER_SEARCH_MCP_PATH)",
+    )
+    parser.add_argument(
+        "--allowed-hosts",
+        type=_valid_allowed_hosts,
+        default=_server_env("ALLOWED_HOSTS", ""),
+        help="Comma-separated public Host values accepted besides localhost, e.g. "
+        "papers.example.org or box.tailnet.ts.net:* (env: PAPER_SEARCH_MCP_ALLOWED_HOSTS)",
     )
     parser.add_argument(
         "--auth", choices=("none", "oauth"), default=None,
@@ -1080,8 +1119,23 @@ def main(argv: list[str] | None = None) -> None:
     except AuthConfigurationError as exc:
         parser.error(str(exc))
 
+    global _CONFINE_SAVE_PATHS
+    # A remote client is not the machine's owner: keep its downloads in one root.
+    _CONFINE_SAVE_PATHS = True
     mcp.settings.host = args.host
     mcp.settings.port = args.port
+    if args.allowed_hosts:
+        # The SDK fixed its allowlist to localhost when mcp was created at import;
+        # binding another host later does not change it. OAuth mode extends this list.
+        existing = mcp.settings.transport_security
+        mcp.settings.transport_security = TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=list(dict.fromkeys([*(existing.allowed_hosts if existing else []), *args.allowed_hosts])),
+            allowed_origins=list(dict.fromkeys([
+                *(existing.allowed_origins if existing else []),
+                *(f"{scheme}://{host}" for host in args.allowed_hosts for scheme in ("https", "http")),
+            ])),
+        )
     if args.transport == "streamable-http":
         mcp.settings.streamable_http_path = args.path
     logger.info(

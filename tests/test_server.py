@@ -137,3 +137,47 @@ class TestPaperSearchServer(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRemoteSavePaths(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name) / "downloads"
+        (self.root / "sub").mkdir(parents=True)
+        self.outside = Path(self.tmp.name) / "outside"
+        self.outside.mkdir()
+        (self.root / "escape").symlink_to(self.outside)
+        self.patches = [
+            patch.object(server, "_CONFINE_SAVE_PATHS", True),
+            patch.dict("os.environ", {"PAPER_SEARCH_MCP_SECTION_PDF_ROOT": str(self.root)}),
+        ]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        self.tmp.cleanup()
+
+    def test_paths_outside_the_root_are_refused(self):
+        for path in ("/etc", str(self.outside), str(self.root / ".." / "outside"), str(self.root / "escape")):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(ValueError, "download root"):
+                    asyncio.run(server.download_paper("arxiv", "1", save_path=path))
+                with self.assertRaisesRegex(ValueError, "download root"):
+                    asyncio.run(server.read_paper("arxiv", "1", save_path=path))
+
+    def test_paths_inside_the_root_reach_the_connector(self):
+        from unittest.mock import Mock
+
+        read = Mock(return_value="text")
+        with patch.object(server.arxiv_searcher, "read_paper", read):
+            self.assertEqual(asyncio.run(server.read_paper("arxiv", "1", save_path=str(self.root / "sub"))), "text")
+        read.assert_called_once_with("1", str((self.root / "sub").resolve()))
+
+    def test_stdio_keeps_any_save_path(self):
+        with patch.object(server, "_CONFINE_SAVE_PATHS", False):
+            self.assertEqual(server._download_dir("/anywhere"), "/anywhere")

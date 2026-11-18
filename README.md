@@ -73,6 +73,23 @@ the `paper-search search` CLI.
    `pdf_urls` keeps every source's link. Works are ranked by
    `sum(1 / (60 + rank_in_source))`.
 
+## Remote hosting (Streamable HTTP / SSE)
+
+Run `paper-search-mcp --transport streamable-http` (endpoint `/mcp`) or
+`--transport sse` (`/sse` and `/messages/`) behind an HTTPS reverse proxy. For
+anything reachable beyond your own machine, use OAuth mode; see
+[docs/OAUTH_PROTECTED_RESOURCE.md](docs/OAUTH_PROTECTED_RESOURCE.md).
+
+- **Public hostnames:** the MCP SDK only accepts localhost `Host` headers by
+  default, and OAuth mode adds the resource URL's host. Any other name, such as a
+  private-network host in open mode or an extra alias, goes in
+  `--allowed-hosts` / `PAPER_SEARCH_MCP_ALLOWED_HOSTS`: a comma-separated list of
+  `host`, `host:port` or `host:*`. Requests for unlisted hosts get HTTP 421.
+- **Downloads:** over HTTP, `download_paper` and `read_paper` only save inside
+  `PAPER_SEARCH_MCP_SECTION_PDF_ROOT` (default `./downloads`), the same root
+  `extract_sections` reads. Paths outside it, including through symlinks, are
+  refused. stdio is unchanged.
+
 ## Deduplication benchmark
 
 [`benchmarks/dedup`](benchmarks/dedup/README.md) holds a labelled gold set (9
