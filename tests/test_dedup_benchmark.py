@@ -64,3 +64,23 @@ def test_scholarmcp_port_misses_part_of_the_three_record_chain():
 def test_jd_mcp_gets_every_handbuilt_case_right():
     result = run.score(adapters.jd_mcp, handbuilt.CASES)["all"]
     assert result["fp"] == 0 and result["fn"] == 0
+
+
+def test_live_pairs_use_s2_labels_and_reviews_override():
+    case = {"records": [{}, {}, {}, {}], "gold": ["P1", "P1", "P2", None],
+            "review": {(0, 1): "different", (2, 3): "same", (0, 2): "unsure"}}
+    assert sorted(run.gold_pairs(case)) == [
+        (0, 1, False),  # review overrides S2
+        (1, 2, False),  # S2: different papers
+        (2, 3, True),   # unlabelled record scored only through review
+    ]
+
+
+@pytest.mark.parametrize("split", ["live", "live-test"])
+def test_committed_live_data_is_fully_labelled_and_reviewable(split):
+    live = generate.DATA / split
+    if not (live / "records.jsonl").exists():
+        pytest.skip("live capture not committed")
+    cases = run.load_cases(split)
+    assert cases and all(len(c["gold"]) == len(c["records"]) for c in cases)
+    assert any(any(c["gold"]) for c in cases)

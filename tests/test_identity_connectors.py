@@ -148,3 +148,19 @@ def test_native_download_over_limit_is_removed(tmp_path):
         result = asyncio.run(server.download_paper("arxiv", "1", save_path=str(tmp_path)))
     assert "download limit" in result
     assert not big.exists()
+
+
+def test_dblp_bot_challenge_is_an_error_not_empty_results():
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    import pytest
+
+    from paper_search_mcp.academic_platforms.dblp import DBLPSearcher
+
+    challenge = SimpleNamespace(status_code=202, text="<title>Making sure you're not a bot!</title>",
+                                content=b"<html></html>", raise_for_status=lambda: None)
+    searcher = DBLPSearcher()
+    searcher.session = Mock(get=Mock(return_value=challenge))
+    with pytest.raises(RuntimeError, match="bot challenge"):
+        searcher.search("deep residual learning", max_results=3)

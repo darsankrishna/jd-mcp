@@ -28,6 +28,54 @@ score here shows that those modes are handled, not how it performs on live data.
 To make this a real benchmark, add labelled pairs drawn from live provider
 responses (as separate files with their own split) and rerun.
 
+## Live records (`data/live/` dev, `data/live-test/` held out)
+
+Real connector responses, scored separately from the constructed set.
+
+| Set | Seeds | Results | Status |
+| --- | --- | --- | --- |
+| dev | `live_seeds.json` (48 queries) | [RESULTS-live.md](RESULTS-live.md) | Used to find and fix two resolver bugs, so biased in jd-mcp's favour |
+| test | `live_seeds_test.json` (43 queries) | [RESULTS-live-test.md](RESULTS-live-test.md) | Queries chosen before capture; resolver hashes frozen in `data/live-test/frozen.json` before capture; scored once |
+
+To keep the test set unbiased, do not change the resolver because of its
+results. Fix problems against the dev set, then capture a new test set.
+
+- `live_seeds.json` holds 48 search queries (preprint vs published, biomedical,
+  Part/series, errata and retractions, generic titles, non-Latin). It is queries
+  only: no identifiers or metadata were typed in.
+- `records.jsonl` holds the top 3 results per source from this repo's own
+  connectors, with the capture time per source and any source errors.
+- `labels.json` is the answer key. Semantic Scholar is never an evaluated source.
+  Each record's own DOI, arXiv id or PMID is looked up in the S2 batch API, and
+  records resolving to the same S2 paperId are the same work. Records with no
+  resolvable id, or ids resolving to different papers, stay unlabelled.
+- `review.csv` lists pairs for a person to check, chosen without looking at any
+  system's output:
+  - unlabelled pairs with similar titles;
+  - pairs S2 calls different that have near-identical titles;
+  - pairs S2 calls the same that have dissimilar titles;
+  - a 10% random audit sample of the rest.
+
+  Fill the `review` column with `same`, `different` or `unsure`. The runner uses
+  your label instead of S2's, and re-running the capture keeps reviews already
+  entered.
+
+```bash
+uv run python -m benchmarks.dedup.live_capture                     # capture, label, review sheet
+uv run python -m benchmarks.dedup.live_capture --sources openalex  # recapture one source
+uv run python -m benchmarks.dedup.live_capture --relabel           # relabel saved records
+uv run python -m benchmarks.dedup.run --split live --write         # score, write RESULTS-live.md
+uv run python -m benchmarks.dedup.live_capture --set test          # capture the held-out set
+uv run python -m benchmarks.dedup.run --split live-test --write    # score it, write RESULTS-live-test.md
+```
+
+Known gaps:
+- At capture, dblp served a bot challenge to scripted requests. It is recorded as
+  a source error, not worked around.
+- Anonymous OpenAlex search was throttled, so its capture waits out each 429.
+  Setting `PAPER_SEARCH_MCP_OPENALEX_API_KEY` avoids that.
+- S2 labels carry S2's own merge errors until the flagged pairs are reviewed.
+
 ## Systems (`adapters.py`)
 
 - **jd-mcp**: `paper_search_mcp.identity.resolve`, without a persistent store.

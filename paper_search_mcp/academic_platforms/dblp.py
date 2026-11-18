@@ -136,6 +136,10 @@ class DBLPSearcher(PaperSource):
                 timeout=30,
             )
             response.raise_for_status()
+            if response.status_code != 200 or "not a bot" in response.text[:2000]:
+                raise RuntimeError(
+                    f"dblp answered HTTP {response.status_code} with a bot challenge; scripted access is blocked"
+                )
             soup = BeautifulSoup(response.text, 'html.parser')
             entries = soup.select('.publ-list .entry')
             for entry in entries:
@@ -203,7 +207,8 @@ class DBLPSearcher(PaperSource):
                     logger.warning("Error parsing dblp HTML entry: %s", exc)
                     continue
         except Exception as exc:
-            logger.error("dblp HTML fallback failed: %s", exc)
+            # Both dblp endpoints failed: report it instead of returning no results.
+            raise RuntimeError(f"dblp search failed: {exc}") from exc
 
         return papers
 

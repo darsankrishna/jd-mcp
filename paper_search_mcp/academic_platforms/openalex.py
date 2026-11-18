@@ -207,8 +207,8 @@ class OpenAlexSearcher(PaperSource):
             response = self.session.get(self.BASE_URL, params=params, timeout=30)
             
             if response.status_code != 200:
-                logger.error(f"OpenAlex search failed with status {response.status_code}")
-                return papers
+                # An outage or rate limit must not look like zero results.
+                raise RuntimeError(f"OpenAlex search returned HTTP {response.status_code}")
 
             data = response.json()
             results = data.get("results", [])
@@ -221,8 +221,8 @@ class OpenAlexSearcher(PaperSource):
                 if paper is not None:
                     papers.append(paper)
 
-        except Exception as e:
-            logger.error(f"OpenAlex search error: {e}")
+        except (requests.RequestException, ValueError) as e:
+            raise RuntimeError(f"OpenAlex search failed: {e}") from e
 
         return papers
 

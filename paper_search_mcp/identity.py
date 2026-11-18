@@ -104,8 +104,22 @@ def _fold(text: str) -> str:
     return "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
 
 
-def author_key(name: str) -> Optional[Tuple[str, str]]:
-    """(surname, first initial) for 'Kaiming He', 'He, Kaiming' and 'K. He'."""
+def _initials_last(name: str) -> bool:
+    tokens = unicodedata.normalize("NFKC", name).split()
+    last = tokens[-1] if tokens else ""
+    return (len(tokens) > 1 and "," not in name and "." not in name
+            and last.isalpha() and last.isupper() and len(last) <= 3)
+
+
+def author_keys(names: List[str]) -> List[Tuple[str, str]]:
+    # PubMed/MEDLINE lists put initials after the surname ('Love MI; Huber W').
+    # Decided per list: one name like 'Kaiming HE' is ambiguous, a whole list is not.
+    initials_last = bool(names) and all(_initials_last(n) for n in names)
+    return [key for key in (author_key(n, initials_last) for n in names) if key]
+
+
+def author_key(name: str, initials_last: bool = False) -> Optional[Tuple[str, str]]:
+    """(surname, first initial) for 'Kaiming He', 'He, Kaiming', 'K. He', and 'He K' in PubMed lists."""
     name = _fold(unicodedata.normalize("NFKC", name or "").casefold()).strip()
     if "," in name:
         surname_part, _, given_part = name.partition(",")
@@ -113,7 +127,10 @@ def author_key(name: str) -> Optional[Tuple[str, str]]:
         parts = name.split()
         if not parts:
             return None
-        surname_part, given_part = parts[-1], " ".join(parts[:-1])
+        if initials_last and len(parts) > 1:
+            surname_part, given_part = " ".join(parts[:-1]), parts[-1]
+        else:
+            surname_part, given_part = parts[-1], " ".join(parts[:-1])
     surname_tokens = normalize_title(surname_part).split()
     given_tokens = normalize_title(given_part).split()
     if not surname_tokens:
@@ -177,11 +194,22 @@ def record_key(record: Dict[str, Any]) -> str:
     return f"src:{record.get('source', '')}:{str(record.get('paper_id') or '').strip().casefold()}"
 
 
+# DOI prefixes of preprint servers: arXiv, bioRxiv/medRxiv (numeric suffix; CSHL
+# journals share 10.1101 with letter suffixes), SSRN, Research Square,
+# Preprints.org, Authorea, ChemRxiv, OSF and PsyArXiv.
+_PREPRINT_DOI = re.compile(
+    r"^10\.(?:48550/|1101/\d|2139/ssrn|21203/rs\.|20944/preprints|22541/au\.|26434/chemrxiv|31219/osf|31234/)"
+)
+
+
+def is_preprint_doi(doi: str) -> bool:
+    return bool(_PREPRINT_DOI.match(normalize_doi(doi)))
+
+
 def is_preprint(record: Dict[str, Any]) -> bool:
-    doi = normalize_doi(record.get("doi", ""))
     return (
         record.get("source") in PREPRINT_SOURCES
-        or doi.startswith("10.48550/")
+        or is_preprint_doi(record.get("doi", ""))
         or _extra(record).get("crossref_type") == "posted-content"
     )
 
@@ -242,7 +270,8 @@ def _primary_values(record: Dict[str, Any]) -> List[Tuple[str, str]]:
 # ---------------------------------------------------------------------------
 
 class _Features:
-    __slots__ = ("title", "numbers", "erratum", "generic", "authors", "year", "journal_ref", "venue")
+    __slots__ = ("title", "numbers", "erratum", "generic", "authors", "year", "journal_ref", "venue",
+                 "published_doi")
 
     def __init__(self, record: Dict[str, Any]):
         self.title = record.get("title") or ""
@@ -250,11 +279,13 @@ class _Features:
         self.numbers = title_numbers(self.title)
         self.erratum = bool(tokens & ERRATUM_WORDS)
         self.generic = normalize_title(self.title).replace(" ", "") in GENERIC_TITLES
-        self.authors = [key for key in map(author_key, split_authors(record.get("authors"))) if key]
+        self.authors = author_keys(split_authors(record.get("authors")))
         self.year = _year(record)
         extra = _extra(record)
         self.journal_ref = str(extra.get("journal_ref") or "")
         self.venue = str(extra.get("container_title") or extra.get("venue") or "")
+        doi = normalize_doi(record.get("doi", ""))
+        self.published_doi = doi if doi and not is_preprint(record) else ""
 
 
 def veto(a: _Features, b: _Features) -> Optional[str]:
@@ -267,6 +298,10 @@ def veto(a: _Features, b: _Features) -> Optional[str]:
         return "author lists are disjoint"
     if a.year and b.year and abs(a.year - b.year) > MAX_YEAR_GAP:
         return f"year gap {abs(a.year - b.year)} exceeds {MAX_YEAR_GAP}"
+    # Two records each claiming their own published DOI are two works. Preprint
+    # DOIs never trigger this, so a preprint still links to its published version.
+    if a.published_doi and b.published_doi and a.published_doi != b.published_doi:
+        return f"different published DOIs ({a.published_doi} vs {b.published_doi})"
     return None
 
 

@@ -7,6 +7,7 @@ import pytest
 from paper_search_mcp.identity import (
     IdentityStore,
     author_key,
+    author_keys,
     normalize_title,
     resolve,
     title_similarity,
@@ -281,6 +282,25 @@ def test_author_keys():
     assert author_key("Müller, Jörg") == author_key("Jorg Muller")
 
 
+
+def test_pubmed_author_lists_put_initials_after_the_surname():
+    assert author_keys(["Love MI", "Huber W", "Anders S"]) == author_keys(
+        ["Michael I Love", "Wolfgang Huber", "Simon Anders"]) == [("love", "m"), ("huber", "w"), ("anders", "s")]
+    # Capitalised surnames are not initials: the whole list decides.
+    assert author_keys(["Kaiming HE", "Xiangyu ZHANG"]) == [("he", "k"), ("zhang", "x")]
+    assert author_keys(["J. LI", "Wei Wang"]) == [("li", "j"), ("wang", "w")]
+
+
+def test_pubmed_record_merges_with_its_crossref_copy():
+    works = works_of({
+        "crossref": [rec("crossref", "10.1186/x", "Moderated estimation of fold change for RNA-seq data",
+                         "Michael I Love; Wolfgang Huber; Simon Anders", doi="10.1186/x", date="2014")],
+        "pubmed": [rec("pubmed", "25516281", "Moderated estimation of fold change for RNA-seq data",
+                       "Love MI; Huber W; Anders S", date="2014")],
+    })
+    assert len(works) == 1
+
+
 def test_persisted_wrong_merge_is_split_when_a_veto_appears(store):
     # First search: no years yet, so the two records merge on title and author.
     first = resolve({
@@ -317,3 +337,36 @@ def test_persisted_link_still_merges_records_without_a_veto(store):
         "crossref": [rec("crossref", "10.1/pub", "U", "Ada Lovelace", doi="10.1/pub", date="2022")],
     }, store)
     assert len(works) == 1
+
+
+def test_one_word_apart_papers_with_their_own_published_dois_stay_apart():
+    # Real pair from the live capture: BWA (2009) and BWA-SW (2010).
+    works = works_of({"crossref": [
+        rec("crossref", "10.1093/bioinformatics/btp324",
+            "Fast and accurate short read alignment with Burrows-Wheeler transform",
+            "Heng Li; Richard Durbin", doi="10.1093/bioinformatics/btp324", date="2009"),
+        rec("crossref", "10.1093/bioinformatics/btp698",
+            "Fast and accurate long-read alignment with Burrows-Wheeler transform",
+            "Heng Li; Richard Durbin", doi="10.1093/bioinformatics/btp698", date="2010"),
+    ]})
+    assert len(works) == 2
+
+
+def test_preprint_server_doi_still_links_to_the_published_doi():
+    works = works_of({
+        "europepmc": [rec("europepmc", "PPR1", "Moderated estimation of fold change for RNA-seq data",
+                          "Michael I Love; Wolfgang Huber", doi="10.1101/002832", date="2014")],
+        "crossref": [rec("crossref", "10.1186/x", "Moderated estimation of fold change for RNA-seq data",
+                         "Michael I Love; Wolfgang Huber", doi="10.1186/x", date="2014")],
+    })
+    assert len(works) == 1
+    assert works[0]["doi"] == "10.1186/x" and works[0]["ids"]["preprint_doi"] == "10.1101/002832"
+
+
+def test_preprint_doi_prefixes():
+    from paper_search_mcp.identity import is_preprint_doi
+    assert is_preprint_doi("10.1101/2020.03.01.123456")
+    assert is_preprint_doi("https://doi.org/10.48550/arXiv.1512.03385")
+    assert is_preprint_doi("10.2139/ssrn.4993784")
+    assert not is_preprint_doi("10.1101/gr.123456.111")  # Genome Research, a CSHL journal
+    assert not is_preprint_doi("10.1109/CVPR.2016.90")

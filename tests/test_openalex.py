@@ -143,13 +143,11 @@ class TestOpenAlexSearcher(unittest.TestCase):
         self.assertEqual(paper.published_date.year, 2024)
         self.assertEqual(paper.citations, 7)
 
-    def test_non_success_response_returns_no_results(self):
+    def test_non_success_response_is_an_error_not_empty_results(self):
         self.searcher.session.get = Mock(return_value=self._response(status_code=429))
 
-        self.assertEqual(
-            self.searcher.search("machine learning", filter="publication_year:2024"),
-            [],
-        )
+        with self.assertRaisesRegex(RuntimeError, "HTTP 429"):
+            self.searcher.search("machine learning", filter="publication_year:2024")
 
     def test_user_agent_header(self):
         user_agent = self.searcher.session.headers.get("User-Agent", "")
