@@ -1,0 +1,37 @@
+{
+ "features": [
+  "title_dice",
+  "title_token_jaccard",
+  "author_overlap",
+  "first_author_match",
+  "year_gap",
+  "journal_ref_match",
+  "venue_overlap",
+  "title_length_ratio"
+ ],
+ "weights": [
+  5.925651661775477,
+  9.467787921772214,
+  0.0,
+  1.7507766784599121,
+  -1.5963410875793629,
+  2.330040662762299,
+  2.330040662762299,
+  0.7049892097051673
+ ],
+ "bias": -14.829446442783453,
+ "threshold": 0.5,
+ "trained_on": {
+  "data": "benchmarks/dedup constructed gold set, train split",
+  "pairs": 133,
+  "positives": 103,
+  "train_confusion": {
+   "tp": 103,
+   "fp": 0,
+   "fn": 0,
+   "tn": 30
+  },
+  "train_mcc": 1.0,
+  "date": "2026-11-18"
+ }
+}

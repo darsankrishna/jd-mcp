@@ -1,0 +1,10 @@
+{
+ "frozen_at": "2026-11-18T15:34:40+00:00",
+ "note": "Hashes taken before the held-out capture; scoring uses these exact files.",
+ "sha256": {
+  "paper_search_mcp/identity.py": "930a134f435292a1313512b7e5f9e6f1e8524da8501e094fccbbdc704da4dbdf",
+  "paper_search_mcp/match_model.json": "a316ff449681e4c1d4cf90b29d93f0de77f7732e507e4d808e9025391a199eb0",
+  "benchmarks/dedup/adapters.py": "6d1affa27987ea1cffaa910e7b7365a9ceea04201aeef1f913caa308764c70b9",
+  "benchmarks/dedup/live_seeds_test.json": "9965d1dd517bb28fa9069e81f1f515c268d7abfdbf145bb71aed6a78daff13b5"
+ }
+}
